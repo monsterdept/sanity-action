@@ -1,0 +1,116 @@
+name: Sanity readings
+description: >-
+  Fail unless the committed .sanity/ readings are complete, current to the code at
+  HEAD, and taken by one agent and model. Runs no model and needs no credentials.
+branding:
+  icon: check-circle
+  color: orange
+
+# A gate over readings developers have already taken and committed. It never reads:
+# `sanity check` spawns coding agents, which would mean model credentials in CI, and
+# readings belong to whoever is about to ship the code they describe.
+#
+# The repo has to be checked out first. History is not needed — `verify` compares each
+# reading against the body it was taken from, not against a commit.
+
+inputs:
+  version:
+    description: >-
+      Sanity release to verify with, e.g. 0.31.0. Pin it to the version your team reads
+      with: a release that changes the parser or the questions can expire readings, and
+      the gate should not move under you.
+    required: true
+  path:
+    description: The repo to verify, relative to the workspace.
+    default: "."
+  model:
+    description: Require this model, not merely one model (e.g. claude-sonnet-5).
+    default: ""
+  harness:
+    description: Require this agent, not merely one agent (e.g. claude).
+    default: ""
+  consistent-reader:
+    description: >-
+      Fail unless every reading was taken by one agent and model. Set to false to allow a
+      mix; the mix is still printed. Cannot be false together with model or harness.
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    # The Linux build is the x86-64 AppImage; there is nothing to run elsewhere, and a
+    # clear refusal beats a download that cannot execute.
+    - name: Check the runner
+      shell: bash
+      run: |
+        if [ "$RUNNER_OS" != "Linux" ] || [ "$RUNNER_ARCH" != "X64" ]; then
+          echo "::error title=sanity::this action runs on Linux x86-64 runners only (got $RUNNER_OS/$RUNNER_ARCH)"
+          exit 1
+        fi
+
+    - name: Resolve the version
+      id: version
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        v="${VERSION#v}"
+        if [ -z "$v" ]; then
+          echo "::error title=sanity::the version input is required"
+          exit 1
+        fi
+        echo "version=$v" >> "$GITHUB_OUTPUT"
+        echo "dir=$RUNNER_TOOL_CACHE/sanity/$v" >> "$GITHUB_OUTPUT"
+
+    # 140MB per release, so it is fetched once per version rather than once per run.
+    - name: Cache the binary
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.version.outputs.dir }}
+        key: sanity-appimage-${{ steps.version.outputs.version }}
+
+    - name: Download Sanity ${{ steps.version.outputs.version }}
+      shell: bash
+      env:
+        V: ${{ steps.version.outputs.version }}
+        DIR: ${{ steps.version.outputs.dir }}
+      run: |
+        set -euo pipefail
+        bin="$DIR/sanity.AppImage"
+        if [ ! -x "$bin" ]; then
+          mkdir -p "$DIR"
+          curl -fsSL --retry 3 -o "$bin.part" "https://dl.dept.monster/sanity/Sanity_${V}_amd64.AppImage"
+          mv "$bin.part" "$bin"
+          chmod +x "$bin"
+        fi
+
+    # APPIMAGE_EXTRACT_AND_RUN because current Ubuntu runners ship without libfuse2,
+    # which an AppImage needs to mount itself.
+    - name: Verify readings
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        APPIMAGE_EXTRACT_AND_RUN: "1"
+        BIN: ${{ steps.version.outputs.dir }}/sanity.AppImage
+        VERSION: ${{ steps.version.outputs.version }}
+        REPO: ${{ inputs.path }}
+        MODEL: ${{ inputs.model }}
+        HARNESS: ${{ inputs.harness }}
+        CONSISTENT: ${{ inputs.consistent-reader }}
+      run: |
+        case "$CONSISTENT" in
+          true) mixed= ;;
+          false) mixed=1 ;;
+          *) echo "::error title=sanity::consistent-reader must be true or false (got '$CONSISTENT')"; exit 1 ;;
+        esac
+        # Asked of the binary rather than of a version table: a release without the verb
+        # says so here, instead of as an argument parser's complaint.
+        if ! "$BIN" verify --help >/dev/null 2>&1; then
+          echo "::error title=sanity::Sanity $VERSION has no \`verify\` — use a release that has it"
+          exit 1
+        fi
+        args=(verify "$REPO")
+        [ -n "$MODEL" ] && args+=(--model "$MODEL")
+        [ -n "$HARNESS" ] && args+=(--harness "$HARNESS")
+        [ -n "$mixed" ] && args+=(--mixed)
+        "$BIN" "${args[@]}"

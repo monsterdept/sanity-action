@@ -1,0 +1,45 @@
+# sanity-action
+
+Fail a build unless a repo's [Sanity](https://sanity.monster) readings are complete, current,
+and taken by one model.
+
+Readings are taken by developers, with `sanity check`, against the code they are about to
+ship, and committed to `.sanity/`. This action never takes them: that would mean model
+credentials in CI. It runs `sanity verify` over what was committed, which fails unless:
+
+- **complete**: every function and file in scope has a reading;
+- **current**: none is stale against the code as checked out, and none was taken under an
+  older version of a question;
+- **one instrument**: every reading names the same agent and model. This one is optional;
+  see `consistent-reader`.
+
+It needs no git history, no network beyond downloading Sanity, and no secrets.
+
+## Usage
+
+```yaml
+jobs:
+  readings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: monsterdept/sanity-action@v1
+        with:
+          version: 0.31.0
+```
+
+Linux x86-64 runners only.
+
+| Input | Required | |
+|---|---|---|
+| `version` | yes | The Sanity release to verify with. |
+| `path` | no | The repo to verify, relative to the workspace. Default `.` |
+| `model` | no | Require this model rather than merely one model, e.g. `claude-sonnet-5`. |
+| `harness` | no | Require this agent rather than merely one agent, e.g. `claude`. |
+| `consistent-reader` | no | `false` passes readings taken by more than one agent or model. Default `true`. |
+
+**Pin `version` to the release your team reads with.** A Sanity release that changes the
+parser or a question can expire readings. The action's own tag (`@v1`) moves with fixes to
+the action; the Sanity version moves only when you change it.
+
+Locally, the same check is `sanity verify`.
