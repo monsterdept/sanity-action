@@ -22,10 +22,10 @@ jobs:
   readings:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: monsterdept/sanity-action@v1
         with:
-          version: 0.31.0
+          version: 0.31.1
 ```
 
 Linux x86-64 runners only.

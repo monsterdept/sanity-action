@@ -16,7 +16,7 @@ branding:
 inputs:
   version:
     description: >-
-      Sanity release to verify with, e.g. 0.31.0. Pin it to the version your team reads
+      Sanity release to verify with, e.g. 0.31.1. Pin it to the version your team reads
       with: a release that changes the parser or the questions can expire readings, and
       the gate should not move under you.
     required: true
@@ -64,7 +64,7 @@ runs:
 
     # 140MB per release, so it is fetched once per version rather than once per run.
     - name: Cache the binary
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ${{ steps.version.outputs.dir }}
         key: sanity-appimage-${{ steps.version.outputs.version }}
