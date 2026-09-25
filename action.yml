@@ -109,7 +109,13 @@ runs:
           echo "::error title=sanity::Sanity $VERSION has no \`verify\` — use a release that has it"
           exit 1
         fi
-        args=(verify "$REPO")
+        # Absolute, because the AppImage's launcher changes into its own usr/ before Sanity
+        # starts: a relative path is resolved against the unpacked app, not the checkout.
+        if ! repo="$(cd "$REPO" 2>/dev/null && pwd)"; then
+          echo "::error title=sanity::no directory at '$REPO' in the workspace"
+          exit 1
+        fi
+        args=(verify "$repo")
         [ -n "$MODEL" ] && args+=(--model "$MODEL")
         [ -n "$HARNESS" ] && args+=(--harness "$HARNESS")
         [ -n "$mixed" ] && args+=(--mixed)
