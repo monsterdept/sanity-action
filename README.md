@@ -25,13 +25,13 @@ jobs:
       - uses: actions/checkout@v7
       - uses: monsterdept/sanity-action@v2
         with:
-          version: 0.32.0
+          version: 0.33.0
 ```
 
 Runs on Linux, macOS and Windows runners, x86-64 or ARM64 (macOS: ARM64 only). It downloads
 the headless `sanity` for the runner, about 16 MB, and caches it per version.
 
-**v2 needs Sanity 0.32.0 or later**, the first release with headless builds. For an older
+**v2 needs Sanity 0.33.0 or later**, the first release with headless builds. For an older
 version, `monsterdept/sanity-action@v1` runs the Linux x86-64 AppImage.
 
 | Input | Required | |

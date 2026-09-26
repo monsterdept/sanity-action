@@ -14,12 +14,12 @@ branding:
 # reading against the body it was taken from, not against a commit.
 #
 # It runs the headless `sanity` — every verb, no window — which Sanity releases for Linux,
-# macOS and Windows from 0.32.0. v1 ran the Linux AppImage, and still works for older versions.
+# macOS and Windows from 0.33.0. v1 ran the Linux AppImage, and still works for older versions.
 
 inputs:
   version:
     description: >-
-      Sanity release to verify with, e.g. 0.32.0. Pin it to the version your team reads
+      Sanity release to verify with, e.g. 0.33.0. Pin it to the version your team reads
       with: a release that changes the parser or the questions can expire readings, and
       the gate should not move under you.
     required: true
@@ -94,7 +94,7 @@ runs:
         archive="$RUNNER_TEMP/$name"
         code=$(curl -sSL --retry 3 -o "$archive" -w '%{http_code}' "https://dl.dept.monster/sanity/$name")
         if [ "$code" = "404" ]; then
-          echo "::error title=sanity::Sanity $V has no build for $TARGET. The headless builds this action runs start at 0.32.0; for an older version use monsterdept/sanity-action@v1 on a Linux x86-64 runner."
+          echo "::error title=sanity::Sanity $V has no build for $TARGET. The headless builds this action runs start at 0.33.0; for an older version use monsterdept/sanity-action@v1 on a Linux x86-64 runner."
           exit 1
         fi
         [ "$code" = "200" ] || { echo "::error title=sanity::downloading $name failed with HTTP $code"; exit 1; }
