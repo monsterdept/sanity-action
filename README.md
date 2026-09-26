@@ -23,12 +23,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: monsterdept/sanity-action@v1
+      - uses: monsterdept/sanity-action@v2
         with:
-          version: 0.31.1
+          version: 0.32.0
 ```
 
-Linux x86-64 runners only.
+Runs on Linux, macOS and Windows runners, x86-64 or ARM64 (macOS: ARM64 only). It downloads
+the headless `sanity` for the runner, about 16 MB, and caches it per version.
+
+**v2 needs Sanity 0.32.0 or later**, the first release with headless builds. For an older
+version, `monsterdept/sanity-action@v1` runs the Linux x86-64 AppImage.
 
 | Input | Required | |
 |---|---|---|
@@ -39,7 +43,11 @@ Linux x86-64 runners only.
 | `consistent-reader` | no | `false` passes readings taken by more than one agent or model. Default `true`. |
 
 **Pin `version` to the release your team reads with.** A Sanity release that changes the
-parser or a question can expire readings. The action's own tag (`@v1`) moves with fixes to
+parser or a question can expire readings. The action's own tag (`@v2`) moves with fixes to
 the action; the Sanity version moves only when you change it.
+
+## License
+
+MIT. Sanity itself is under the GPL, version 3 or later.
 
 Locally, the same check is `sanity verify`.

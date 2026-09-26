@@ -12,11 +12,14 @@ branding:
 #
 # The repo has to be checked out first. History is not needed — `verify` compares each
 # reading against the body it was taken from, not against a commit.
+#
+# It runs the headless `sanity` — every verb, no window — which Sanity releases for Linux,
+# macOS and Windows from 0.32.0. v1 ran the Linux AppImage, and still works for older versions.
 
 inputs:
   version:
     description: >-
-      Sanity release to verify with, e.g. 0.31.1. Pin it to the version your team reads
+      Sanity release to verify with, e.g. 0.32.0. Pin it to the version your team reads
       with: a release that changes the parser or the questions can expire readings, and
       the gate should not move under you.
     required: true
@@ -38,18 +41,8 @@ inputs:
 runs:
   using: composite
   steps:
-    # The Linux build is the x86-64 AppImage; there is nothing to run elsewhere, and a
-    # clear refusal beats a download that cannot execute.
-    - name: Check the runner
-      shell: bash
-      run: |
-        if [ "$RUNNER_OS" != "Linux" ] || [ "$RUNNER_ARCH" != "X64" ]; then
-          echo "::error title=sanity::this action runs on Linux x86-64 runners only (got $RUNNER_OS/$RUNNER_ARCH)"
-          exit 1
-        fi
-
-    - name: Resolve the version
-      id: version
+    - name: Resolve the version and the runner's build
+      id: resolve
       shell: bash
       env:
         VERSION: ${{ inputs.version }}
@@ -59,40 +52,65 @@ runs:
           echo "::error title=sanity::the version input is required"
           exit 1
         fi
-        echo "version=$v" >> "$GITHUB_OUTPUT"
-        echo "dir=$RUNNER_TOOL_CACHE/sanity/$v" >> "$GITHUB_OUTPUT"
+        case "$RUNNER_OS/$RUNNER_ARCH" in
+          Linux/X64)     target=x86_64-unknown-linux-gnu;  ext=tar.gz; exe=sanity ;;
+          Linux/ARM64)   target=aarch64-unknown-linux-gnu; ext=tar.gz; exe=sanity ;;
+          macOS/ARM64)   target=aarch64-apple-darwin;      ext=tar.gz; exe=sanity ;;
+          Windows/X64)   target=x86_64-pc-windows-msvc;    ext=zip;    exe=sanity.exe ;;
+          Windows/ARM64) target=aarch64-pc-windows-msvc;   ext=zip;    exe=sanity.exe ;;
+          *)
+            echo "::error title=sanity::no Sanity build for $RUNNER_OS/$RUNNER_ARCH runners"
+            exit 1
+            ;;
+        esac
+        {
+          echo "version=$v"
+          echo "target=$target"
+          echo "ext=$ext"
+          echo "dir=$RUNNER_TOOL_CACHE/sanity/$v/$target"
+          echo "bin=$RUNNER_TOOL_CACHE/sanity/$v/$target/$exe"
+        } >> "$GITHUB_OUTPUT"
 
-    # 140MB per release, so it is fetched once per version rather than once per run.
+    # About 16MB per release and target, fetched once per version rather than once per run.
     - name: Cache the binary
       uses: actions/cache@v6
       with:
-        path: ${{ steps.version.outputs.dir }}
-        key: sanity-appimage-${{ steps.version.outputs.version }}
+        path: ${{ steps.resolve.outputs.dir }}
+        key: sanity-headless-${{ steps.resolve.outputs.version }}-${{ steps.resolve.outputs.target }}
 
-    - name: Download Sanity ${{ steps.version.outputs.version }}
+    - name: Download Sanity ${{ steps.resolve.outputs.version }}
       shell: bash
       env:
-        V: ${{ steps.version.outputs.version }}
-        DIR: ${{ steps.version.outputs.dir }}
+        V: ${{ steps.resolve.outputs.version }}
+        TARGET: ${{ steps.resolve.outputs.target }}
+        EXT: ${{ steps.resolve.outputs.ext }}
+        DIR: ${{ steps.resolve.outputs.dir }}
+        BIN: ${{ steps.resolve.outputs.bin }}
       run: |
         set -euo pipefail
-        bin="$DIR/sanity.AppImage"
-        if [ ! -x "$bin" ]; then
-          mkdir -p "$DIR"
-          curl -fsSL --retry 3 -o "$bin.part" "https://dl.dept.monster/sanity/Sanity_${V}_amd64.AppImage"
-          mv "$bin.part" "$bin"
-          chmod +x "$bin"
+        [ -f "$BIN" ] && exit 0
+        mkdir -p "$DIR"
+        name="sanity-${V}-${TARGET}.${EXT}"
+        archive="$RUNNER_TEMP/$name"
+        code=$(curl -sSL --retry 3 -o "$archive" -w '%{http_code}' "https://dl.dept.monster/sanity/$name")
+        if [ "$code" = "404" ]; then
+          echo "::error title=sanity::Sanity $V has no build for $TARGET. The headless builds this action runs start at 0.32.0; for an older version use monsterdept/sanity-action@v1 on a Linux x86-64 runner."
+          exit 1
         fi
+        [ "$code" = "200" ] || { echo "::error title=sanity::downloading $name failed with HTTP $code"; exit 1; }
+        if [ "$EXT" = "zip" ]; then
+          powershell -NoProfile -Command "Expand-Archive -Path '$archive' -DestinationPath '$DIR' -Force"
+        else
+          tar -xzf "$archive" -C "$DIR"
+        fi
+        rm -f "$archive"
+        [ -f "$BIN" ] || { echo "::error title=sanity::$name did not contain $(basename "$BIN")"; exit 1; }
 
-    # APPIMAGE_EXTRACT_AND_RUN because current Ubuntu runners ship without libfuse2,
-    # which an AppImage needs to mount itself.
     - name: Verify readings
       shell: bash
       working-directory: ${{ github.workspace }}
       env:
-        APPIMAGE_EXTRACT_AND_RUN: "1"
-        BIN: ${{ steps.version.outputs.dir }}/sanity.AppImage
-        VERSION: ${{ steps.version.outputs.version }}
+        BIN: ${{ steps.resolve.outputs.bin }}
         REPO: ${{ inputs.path }}
         MODEL: ${{ inputs.model }}
         HARNESS: ${{ inputs.harness }}
@@ -103,19 +121,11 @@ runs:
           false) mixed=1 ;;
           *) echo "::error title=sanity::consistent-reader must be true or false (got '$CONSISTENT')"; exit 1 ;;
         esac
-        # Asked of the binary rather than of a version table: a release without the verb
-        # says so here, instead of as an argument parser's complaint.
-        if ! "$BIN" verify --help >/dev/null 2>&1; then
-          echo "::error title=sanity::Sanity $VERSION has no \`verify\` — use a release that has it"
-          exit 1
-        fi
-        # Absolute, because the AppImage's launcher changes into its own usr/ before Sanity
-        # starts: a relative path is resolved against the unpacked app, not the checkout.
-        if ! repo="$(cd "$REPO" 2>/dev/null && pwd)"; then
+        if [ ! -d "$REPO" ]; then
           echo "::error title=sanity::no directory at '$REPO' in the workspace"
           exit 1
         fi
-        args=(verify "$repo")
+        args=(verify "$REPO")
         [ -n "$MODEL" ] && args+=(--model "$MODEL")
         [ -n "$HARNESS" ] && args+=(--harness "$HARNESS")
         [ -n "$mixed" ] && args+=(--mixed)
