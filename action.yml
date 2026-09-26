@@ -90,9 +90,16 @@ runs:
         set -euo pipefail
         [ -f "$BIN" ] && exit 0
         mkdir -p "$DIR"
-        name="sanity-${V}-${TARGET}.${EXT}"
-        archive="$RUNNER_TEMP/$name"
-        code=$(curl -sSL --retry 3 -o "$archive" -w '%{http_code}' "https://dl.dept.monster/sanity/$name")
+        # From the release on GitHub. 0.33.0 named its headless archives `sanity-<v>-<target>`;
+        # every release after it says `headless`, so the release page can tell them from the
+        # app's bundles. The new name is tried first.
+        base="https://github.com/monsterdept/sanity/releases/download/v${V}"
+        code=404
+        for name in "sanity-headless-${V}-${TARGET}.${EXT}" "sanity-${V}-${TARGET}.${EXT}"; do
+          archive="$RUNNER_TEMP/$name"
+          code=$(curl -sSL --retry 3 -o "$archive" -w '%{http_code}' "$base/$name")
+          [ "$code" = "404" ] || break
+        done
         if [ "$code" = "404" ]; then
           echo "::error title=sanity::Sanity $V has no build for $TARGET. The headless builds this action runs start at 0.33.0; for an older version use monsterdept/sanity-action@v1 on a Linux x86-64 runner."
           exit 1
