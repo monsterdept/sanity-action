@@ -1,0 +1,55 @@
+name: Test
+
+# Runs the action from this checkout on every runner it claims to support, against a fixture
+# with real readings: `test/fixture` is one function and its file, read by claude-sonnet-5 with
+# Sanity 0.33.0. Then the two ways it has to fail: a stale reading, and a Sanity version with
+# no headless build.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  passes:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15, windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          version: 0.33.0
+          path: test/fixture
+          model: claude-sonnet-5
+
+  fails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Change the fixture's code, so its reading is stale
+        run: sed -i 's/return a + b/return b + a/' test/fixture/calc.py
+
+      - id: stale
+        uses: ./
+        continue-on-error: true
+        with:
+          version: 0.33.0
+          path: test/fixture
+
+      - id: old
+        uses: ./
+        continue-on-error: true
+        with:
+          version: 0.32.0
+          path: test/fixture
+
+      - name: Both failed
+        env:
+          STALE: ${{ steps.stale.outcome }}
+          OLD: ${{ steps.old.outcome }}
+        run: |
+          [ "$STALE" = failure ] || { echo "::error::a stale reading passed"; exit 1; }
+          [ "$OLD" = failure ] || { echo "::error::0.32.0, which has no headless build, passed"; exit 1; }
